@@ -1,0 +1,119 @@
+
+spring:
+  application:
+    name: gateway-service
+  lifecycle:
+    timeout-per-shutdown-phase: 15s
+  cloud:
+    gateway:
+      routes:
+        - id: find-all-medications-for-patient-route
+          uri: ${MEDICATION_SERVICE_URL:http://localhost:9001}/medications
+          predicates:
+            - Path=/medications/{patientId}
+          filters:
+            - name: Resilience4JCircuitBreaker
+              args:
+                name: "findAllMedicationsForPatientCircuitBreaker"
+                fallbackUri: "forward:/fallback/find-all-medications-for-patient"
+
+        - id: find-medication-by-medication-name-route
+          uri: ${MEDICATION_SERVICE_URL:http://localhost:9001}/medications
+          predicates:
+            - Path=/medications/{patientId}/{medicationName}
+          filters:
+            - name: Resilience4JCircuitBreaker
+              args:
+                name: "findByMedicationNameCircuitBreaker"
+                fallbackUri: "forward:/fallback/find-medication-by-medication-name"
+
+        - id: find-medication-by-medication-ndc-route
+          uri: ${MEDICATION_SERVICE_URL:http://localhost:9001}/medications
+          predicates:
+            - Path=/medications/{patientId}/{medicationNDC}
+          filters:
+            - name: Resilience4JCircuitBreaker
+              args:
+                name: "findByMedicationNDCCircuitBreaker"
+                fallbackUri: "forward:/fallback/find-medication-by-medication-ndc-name"
+
+        - id: find-medication-history-route
+          uri: ${MEDICATION_SERVICE_URL:http://localhost:9001}/medications
+          predicates:
+            - Path=/medications/{patientId}/history
+          filters:
+            - name: Resilience4JCircuitBreaker
+              args:
+                name: "findMedicationHistory"
+                fallbackUri: "forward:/fallback/find-medication-history"
+
+        - id: find-label-by-medname-and-dosage-route
+          uri: ${MEDICATION_SERVICE_URL:http://localhost:9001}/medications
+          predicates:
+            - Path=/medications/label/{medicationName}/{dosageInMilligrams}
+          filters:
+            - name: Resilience4JCircuitBreaker
+              args:
+                name: "findLabelByMedicationNameAndDosage"
+                fallbackUri: "forward:/fallback/find-label-by-medication-name-and-dosage"
+
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 5s
+        pool:
+          type: elastic
+          max-idle-time: 15s
+          max-life-time: 60s
+      default-filters:
+        - name: Retry
+          args:
+            retries: 3
+            methods: GET
+            series: SERVER_ERROR
+            exceptions: java.io.IOException, java.util.concurrent.TimeoutException
+            backoff:
+              firstBackoff: 50ms
+              maxBackoff: 500ms
+              factor: 2
+              basedOnPreviousValue: false
+        - name: RequestRateLimiter
+          args:
+              redis-rate-limiter:
+                replenishRate: 10
+                burstCapacity: 20
+                requestedTokens: 1
+        - name: SaveSession
+  session:
+    timeout: 10m
+    redis:
+      repository-type: default
+      namespace: healthsmart:edge
+  data:
+    redis:
+      connect-timeout: 2s
+      host: localhost
+      port: 6459
+      timeout: 1s
+
+resilience4j:
+  circuitbreaker:
+    configs:
+     default:
+       slidingWindowSize: 20
+       permittedNumberOfCallsInHalfOpenState: 5
+       failureRateThreshold: 50
+       waitDurationInOpenState: 15000
+  timelimiter:
+      configs:
+        default:
+           timeoutDuration: 5s
+logging:
+     level:
+       io.github.resilience4j: DEBUG
+
+server:
+  port: 9056
+  netty:
+    connection-timeout: 2s
+    idle-timeout: 15s
+  shutdown: graceful
